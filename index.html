@@ -1,0 +1,394 @@
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flappy Bird</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#17364a;display:flex;justify-content:center;align-items:center;min-height:100dvh;font-family:Arial;overflow:hidden}
+canvas{width:min(100vw,360px,56.25dvh);height:auto;border:2px solid #000;touch-action:none}
+</style>
+</head>
+<body>
+<canvas id="gameCanvas" width="360" height="640"></canvas>
+<script>
+const canvas=document.getElementById("gameCanvas");
+const ctx=canvas.getContext("2d");
+
+const birdImg=new Image();
+birdImg.src="bird2.png";
+
+const jumpSound=new Audio("voar.flac");
+const scoreSound=new Audio("point.flac");
+const hitSound=new Audio("die.flac");
+
+const skins=[
+{name:"Amarelo",color:"#ffd52a",price:0},
+{name:"Vermelho",color:"#ff4545",price:5},
+{name:"Azul",color:"#2196ff",price:10},
+{name:"Verde",color:"#71e52d",price:15},
+{name:"Roxo",color:"#c34cff",price:25},
+{name:"Preto",color:"#30343b",price:40}
+];
+
+function load(key,fallback){
+try{
+const v=localStorage.getItem(key);
+return v===null?fallback:JSON.parse(v);
+}catch(e){return fallback}
+}
+
+let coins=Math.max(0,Number(load("flappyCoins",0))||0);
+let owned=load("flappyOwned",[0]);
+if(!Array.isArray(owned))owned=[0];
+owned=[...new Set([0,...owned.filter(i=>Number.isInteger(i)&&i>=0&&i<skins.length)])];
+
+let selected=Number(load("flappySelected",0));
+if(!owned.includes(selected))selected=0;
+
+function save(){
+localStorage.setItem("flappyCoins",JSON.stringify(coins));
+localStorage.setItem("flappyOwned",JSON.stringify(owned));
+localStorage.setItem("flappySelected",JSON.stringify(selected));
+}
+
+let state="menu";
+let shopScroll=0;
+let bird={x:60,y:300,size:34,vel:0,gravity:.2,jump:-5,rotation:0};
+let pipes=[],score=0;
+const pipeGap=155,pipeWidth=60,pipeSpeed=2;
+
+function sound(a){
+a.currentTime=0;
+a.play().catch(()=>{});
+}
+
+function rect(x,y,w,h,r,color){
+ctx.fillStyle=color;
+ctx.beginPath();
+ctx.roundRect(x,y,w,h,r);
+ctx.fill();
+}
+
+function background(){
+ctx.fillStyle="#70c5ce";
+ctx.fillRect(0,0,360,640);
+ctx.fillStyle="#a5e5e8";
+for(let i=0;i<6;i++){
+ctx.beginPath();
+ctx.arc(i*75,565,40,0,Math.PI*2);
+ctx.fill();
+}
+ctx.fillStyle="#ded895";
+ctx.fillRect(0,590,360,50);
+ctx.fillStyle="#82cf42";
+ctx.fillRect(0,590,360,10);
+}
+
+function drawBird(x,y,size,index,rotation=0){
+ctx.save();
+ctx.translate(x+size/2,y+size/2);
+ctx.rotate(rotation);
+
+if(index===0&&birdImg.complete&&birdImg.naturalWidth>0){
+ctx.drawImage(birdImg,-size/2,-size/2,size,size);
+}else{
+const c=skins[index].color;
+ctx.fillStyle=c;
+ctx.strokeStyle="#222";
+ctx.lineWidth=2;
+ctx.beginPath();
+ctx.ellipse(0,0,size*.43,size*.34,0,0,Math.PI*2);
+ctx.fill();ctx.stroke();
+
+ctx.fillStyle="#fff";
+ctx.beginPath();
+ctx.arc(size*.18,-size*.12,size*.18,0,Math.PI*2);
+ctx.fill();ctx.stroke();
+
+ctx.fillStyle="#111";
+ctx.beginPath();
+ctx.arc(size*.23,-size*.12,size*.07,0,Math.PI*2);
+ctx.fill();
+
+ctx.fillStyle="#ff773b";
+ctx.beginPath();
+ctx.moveTo(size*.28,size*.02);
+ctx.lineTo(size*.62,size*.12);
+ctx.lineTo(size*.28,size*.2);
+ctx.closePath();ctx.fill();ctx.stroke();
+
+ctx.fillStyle="#fff";
+ctx.beginPath();
+ctx.ellipse(-size*.12,size*.12,size*.19,size*.10,-.3,0,Math.PI*2);
+ctx.fill();ctx.stroke();
+}
+ctx.restore();
+}
+
+function drawPipes(){
+pipes.forEach(p=>{
+ctx.fillStyle="#399e25";
+ctx.fillRect(p.x,0,pipeWidth,p.top);
+ctx.fillRect(p.x,p.bottom,pipeWidth,640-p.bottom);
+ctx.fillStyle="#70d84a";
+ctx.fillRect(p.x+8,0,12,p.top);
+ctx.fillRect(p.x+8,p.bottom,12,640-p.bottom);
+ctx.fillStyle="#24751d";
+ctx.fillRect(p.x-4,p.top-16,pipeWidth+8,16);
+ctx.fillRect(p.x-4,p.bottom,pipeWidth+8,16);
+});
+}
+
+function createPipe(){
+const top=Math.random()*250+50;
+pipes.push({x:360,top,bottom:top+pipeGap,counted:false});
+}
+setInterval(()=>{if(state==="playing")createPipe()},1800);
+
+function reset(){
+bird.y=300;bird.vel=0;bird.rotation=0;
+pipes=[];score=0;state="playing";
+}
+
+function menu(){
+background();
+ctx.textAlign="center";
+ctx.font="bold 35px Arial";
+ctx.lineWidth=4;
+ctx.strokeStyle="#222";
+ctx.fillStyle="#fff";
+ctx.strokeText("FLAPPY BIRD",180,115);
+ctx.fillText("FLAPPY BIRD",180,115);
+
+drawBird(145,170,65,selected);
+rect(20,280,320,52,12,"#169e36");
+rect(24,284,312,42,9,"#35d354");
+rect(20,350,320,52,12,"#075ba8");
+rect(24,354,312,42,9,"#168bf2");
+
+ctx.fillStyle="#fff";
+ctx.font="bold 23px Arial";
+ctx.fillText("INICIAR",180,314);
+ctx.fillText("🛒 LOJA",180,384);
+ctx.font="bold 20px Arial";
+ctx.fillText("🪙 "+coins+" moedas",180,450);
+ctx.textAlign="left";
+}
+
+function shop(){
+ctx.fillStyle="#07344b";
+ctx.fillRect(0,0,360,640);
+rect(12,12,60,44,9,"#168bf2");
+ctx.textAlign="center";
+ctx.fillStyle="#fff";
+ctx.font="bold 28px Arial";
+ctx.fillText("←",42,43);
+ctx.font="bold 27px Arial";
+ctx.fillText("LOJA",180,42);
+
+rect(190,54,158,38,10,"#164c64");
+ctx.fillStyle="#ffdc35";
+ctx.font="bold 17px Arial";
+ctx.fillText("🪙 "+coins,269,80);
+
+ctx.save();
+ctx.beginPath();
+ctx.rect(0,100,360,480);
+ctx.clip();
+
+skins.forEach((s,i)=>{
+const y=105+i*78-shopScroll;
+if(y<35||y>590)return;
+
+rect(12,y,336,68,10,"#11536a");
+ctx.strokeStyle=i===selected?"#38f59a":"#27718a";
+ctx.lineWidth=i===selected?3:1;
+ctx.strokeRect(13,y+1,334,66);
+
+drawBird(25,y+17,38,i);
+
+ctx.textAlign="left";
+ctx.fillStyle="#fff";
+ctx.font="bold 16px Arial";
+ctx.fillText("Pássaro "+s.name,76,y+25);
+ctx.font="14px Arial";
+ctx.fillStyle="#bfeafa";
+
+const has=owned.includes(i);
+ctx.fillText(i===selected?"Selecionado":has?"Comprado":s.price+" moedas",76,y+47);
+
+rect(240,y+17,96,36,7,i===selected?"#178f53":has?"#267d9c":"#22b84c");
+ctx.fillStyle="#fff";
+ctx.textAlign="center";
+ctx.font="bold 13px Arial";
+ctx.fillText(i===selected?"USANDO":has?"USAR":"COMPRAR",288,y+40);
+});
+ctx.restore();
+
+rect(12,590,336,38,8,"#176078");
+ctx.fillStyle="#fff";
+ctx.font="14px Arial";
+ctx.textAlign="center";
+ctx.fillText("Toque em um pássaro para comprar ou usar",180,614);
+}
+
+function gameover(){
+background();
+drawPipes();
+drawBird(bird.x,bird.y,bird.size,selected,bird.rotation);
+ctx.fillStyle="rgba(0,0,0,.65)";
+ctx.fillRect(0,0,360,640);
+rect(28,190,304,270,18,"#07374a");
+
+ctx.textAlign="center";
+ctx.fillStyle="#fff";
+ctx.font="bold 31px Arial";
+ctx.fillText("GAME OVER",180,240);
+ctx.font="bold 23px Arial";
+ctx.fillText("Pontos: "+score,180,290);
+ctx.fillText("🪙 Moedas: "+coins,180,330);
+
+rect(50,360,260,48,10,"#27b84c");
+rect(50,416,260,40,10,"#168bf2");
+ctx.font="bold 20px Arial";
+ctx.fillText("RESTART",180,391);
+ctx.fillText("MENU",180,443);
+}
+
+function endGame(){
+if(state!=="playing")return;
+state="gameover";
+sound(hitSound);
+}
+
+function update(){
+bird.vel+=bird.gravity;
+bird.y+=bird.vel;
+bird.rotation=bird.vel<0?-.35:bird.vel>2?.35:0;
+
+if(bird.y<0||bird.y+bird.size>640){endGame();return}
+
+for(const p of pipes){
+p.x-=pipeSpeed;
+
+if(!p.counted&&p.x+pipeWidth<bird.x){
+p.counted=true;
+score++;
+coins++;
+save();
+sound(scoreSound);
+}
+
+if(bird.x+bird.size-5>p.x&&bird.x+5<p.x+pipeWidth&&
+(bird.y+5<p.top||bird.y+bird.size-5>p.bottom)){
+endGame();return;
+}
+}
+pipes=pipes.filter(p=>p.x>-pipeWidth);
+}
+
+function loop(){
+ctx.clearRect(0,0,360,640);
+
+if(state==="menu")menu();
+
+if(state==="shop")shop();
+
+if(state==="playing"){
+background();
+update();
+drawPipes();
+drawBird(bird.x,bird.y,bird.size,selected,bird.rotation);
+ctx.textAlign="center";
+ctx.font="bold 28px Arial";
+ctx.lineWidth=3;
+ctx.strokeStyle="#222";
+ctx.fillStyle="#fff";
+ctx.strokeText(score,180,42);
+ctx.fillText(score,180,42);
+ctx.textAlign="left";
+ctx.font="bold 17px Arial";
+ctx.fillText("🪙 "+coins,10,30);
+}
+
+if(state==="gameover")gameover();
+requestAnimationFrame(loop);
+}
+
+function pos(e){
+const r=canvas.getBoundingClientRect();
+return {x:(e.clientX-r.left)*360/r.width,y:(e.clientY-r.top)*640/r.height};
+}
+
+canvas.addEventListener("pointerdown",e=>{
+e.preventDefault();
+const {x,y}=pos(e);
+
+if(state==="menu"){
+if(y>270&&y<338)reset();
+else if(y>345&&y<410){shopScroll=0;state="shop"}
+return;
+}
+
+if(state==="shop"){
+if(x<75&&y<65){state="menu";return}
+
+if(y>=100&&y<580){
+const i=Math.floor((y-105+shopScroll)/78);
+if(i<0||i>=skins.length)return;
+
+if(owned.includes(i)){
+selected=i;
+save();
+}else if(coins>=skins[i].price){
+coins-=skins[i].price;
+owned.push(i);
+selected=i;
+save();
+}else{
+alert("Moedas insuficientes! Jogue para ganhar mais moedas.");
+}
+}
+return;
+}
+
+if(state==="playing"){
+bird.vel=bird.jump;
+sound(jumpSound);
+return;
+}
+
+if(state==="gameover"){
+if(x>40&&x<320&&y>350&&y<410)reset();
+else if(x>40&&x<320&&y>410&&y<465)state="menu";
+}
+});
+
+canvas.addEventListener("wheel",e=>{
+if(state==="shop"){
+shopScroll=Math.max(0,Math.min(78*skins.length-480,shopScroll+e.deltaY));
+}
+},{passive:true});
+
+let touchStartY=null;
+canvas.addEventListener("touchstart",e=>{
+touchStartY=e.touches[0].clientY;
+},{passive:true});
+
+canvas.addEventListener("touchend",e=>{
+if(state!=="shop"||touchStartY===null)return;
+const diff=touchStartY-e.changedTouches[0].clientY;
+if(Math.abs(diff)>20){
+shopScroll=Math.max(0,Math.min(78*skins.length-480,shopScroll+diff));
+}
+touchStartY=null;
+},{passive:true});
+
+save();
+loop();
+</script>
+</body>
+</html>
